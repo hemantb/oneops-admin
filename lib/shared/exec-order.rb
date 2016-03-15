@@ -32,7 +32,7 @@ def gen_gemfile_and_install (gems,dsl)
     rubygems_proxy = ENV['rubygems_proxy']
 
     prof_v = ""
-    File.readlines("/etc/profile.d/oneops.sh").each {|prof|  prof_v = prof.match(/rubygems=(.*)$/)} if File.exist?("/etc/profile.d/oneops.sh")
+    Dir["/etc/profile.d/*"].each { |fname| File.readlines("#{fname}").each {|prof|  prof_v = prof.match(/rubygems=(.*)$/) if prof.match(/rubygems=(.*)$/) }}
     rubygems_prof = prof_v[1] if !prof_v.nil?
 
     gemfile_content = "source 'https://rubygems.org'\n"
