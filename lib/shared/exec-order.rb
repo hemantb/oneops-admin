@@ -30,9 +30,12 @@ cookbook_path = ARGV[2] || ''
 def gen_gemfile_and_install (gems,dsl)
 
     rubygems_proxy = ENV['rubygems_proxy']
+    rubygems_prof = ENV['rubygems']
     gemfile_content = "source 'https://rubygems.org'\n"
 	  if !rubygems_proxy.nil?
 	    gemfile_content = "source '#{rubygems_proxy}'\n"
+    elsif !rubygems_prof.nil?
+      gemfile_content = "source '#{rubygems_prof}"
 	  end
     gems.each do |gem_set|
       if gem_set.size > 1
