@@ -30,7 +30,11 @@ cookbook_path = ARGV[2] || ''
 def gen_gemfile_and_install (gems,dsl)
 
     rubygems_proxy = ENV['rubygems_proxy']
-    rubygems_prof = ENV['rubygems']
+
+    prof_v = ""
+    File.readlines("/etc/profile.d/oneops.sh").each {|prof|  prof_v = prof.match(/rubygems=(.*)$/)} if File.exist?("/etc/profile.d/oneops.sh")
+    rubygems_prof = prof_v[1] if !prof_v.nil?
+
     gemfile_content = "source 'https://rubygems.org'\n"
 	  if !rubygems_proxy.nil?
 	    gemfile_content = "source '#{rubygems_proxy}'\n"
