@@ -39,7 +39,7 @@ def gen_gemfile_and_install (gems,dsl)
 	  if !rubygems_proxy.nil?
 	    gemfile_content = "source '#{rubygems_proxy}'\n"
     elsif !rubygems_prof.nil?
-      gemfile_content = "source '#{rubygems_prof}"
+      gemfile_content = "source '#{rubygems_prof}'\n"
 	  end
     gems.each do |gem_set|
       if gem_set.size > 1
