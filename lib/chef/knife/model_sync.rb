@@ -5,6 +5,8 @@ require 'rubygems'
 require 'kramdown'
 require 'bundler'
 require 'cms'
+require 'digest'
+require 'rubygems/package'
 
 ENV['BUNDLE_GEMFILE'] ||= File.dirname(__FILE__) + '/../../../Gemfile'
 require 'bundler/setup' if File.exists?(ENV['BUNDLE_GEMFILE'])
@@ -58,7 +60,7 @@ class Chef
          if class_parts.size < 2
            class_name = class_parts.last
          end         
-         remote_dir = get_remote_dir
+         remote_dir = get_remote_dir(Chef::Config[:environment_name])
          doc_dir = f.gsub("metadata.rb","doc")
                     
         image_groupings = []
@@ -107,8 +109,7 @@ class Chef
          Dir.chdir initial_dir
       end 
 
-      def generate_metadata_from_file(cookbook, file)
-        
+      def generate_metadata_from_file(cookbook, file)        
         config[:register] ||= Chef::Config[:register]
         config[:version] ||= Chef::Config[:version]
         config[:version] ||='1.0.0'
@@ -132,7 +133,7 @@ class Chef
             ui.info("Skipping metadata for class #{cookbook} since --relations option is specified")
             success = true
           else
-            success = sync_class_from_md(md)
+            success = sync_class_from_md(md, file)
           end
         end
         if !success
@@ -151,8 +152,9 @@ class Chef
         exit 1
       end
 
-      def sync_class_from_md(md)
+      def sync_class_from_md(md, file)
         # must sync the base class first
+        puts "sasasasaksshksakd #{md.inspect}"
         md.groupings.each do |group_name,group_properties|
           group_properties[:packages].select {|v| v == 'base'}.each do |package_name|
            find_class = findname(package_name, md.name)
@@ -162,7 +164,7 @@ class Chef
             else
               ui.info("Updating class #{find_class}")
             end
-            cms_class = generate_class(existing_class,md,package_name,group_name)
+            cms_class = generate_class(existing_class,md,package_name,group_name, file)  #existing_class = nil, md=Metadata object map of metadata.rb package_name=["base", "mgmt.catalog", "mgmt.manifest", "catalog", "manifest", "bom"], group_name=default
             if save(cms_class)
               ui.info("Successfuly saved class #{cms_class.className}")
             else
@@ -180,7 +182,7 @@ class Chef
             else
               ui.info("Updating class #{find_class}")
             end
-            cms_class = generate_class(existing_class,md,package_name,group_name)
+            cms_class = generate_class(existing_class,md,package_name,group_name, file)
             if save(cms_class)
               ui.info("Successfuly saved class #{cms_class.className}")
             else
@@ -234,17 +236,66 @@ class Chef
         end
         return true
       end
+
+      def create_cookbook_tar(file)
+        BLOCKSIZE_TO_READ = 1024 * 1000
+        circuit_model = ["circuit", config[:register], config[:version].split(".").first].join('-')
+        cookbook_name = File.dirname(file).gsub(/.*\//,'')
+        path  = "/opt/oneops/#{circuit_model}/current/component/cookbooks/#{cookbook_name}"
+        File.open("/tmp/#{cookbook_name}.tar", "wb") do |file|
+          Gem::Package::TarWriter.new(file) do |tar|
+            Dir[File.join(path, '**/*')].each do |file|
+              mode = File.stat(file).mode
+              relative_file = file.sub(/^#{ Regexp.escape(path) }\/?/, '')
+              if File.directory?(file)
+                tar.mkdir(relative_file, mode)
+              else
+                tar.add_file(relative_file, mode) do |tf|
+                File.open(file, 'rb') do |f|
+		              while buffer = f.read(BLOCKSIZE_TO_READ)
+		                tf.write buffer
+                  end
+                end
+              end
+	           end
+	         end
+	       end
+        end
+        "/tmp/#{cookbook_name}.tar"
+      end
+
+      def upload_cookbook_tar(file)
+        circuit_model = ["circuit", config[:register], config[:version].split(".").first].join('-')
+        remote_dir = get_remote_dir(Chef::Config[:environment_name]+'circuits')
+        cookbook_name = File.dirname(file).gsub(/.*\//,'')
+        #cookbook_tar = '/tmp/'+cookbook_name+'tar'
+        #cookbook_checksum = '/tmp/'+cookbook_name+'_checksum'
+        %W("#{cookbook_name}.tar" "#{cookbook_name}_checksum") do |filename|
+          content = File.open('/tmp/'+filename)
+          remote_file = "#{circuit_model}/#{fielname}"
+          file = @remote_dir.files.create :key => remote_file, :body => content
+        end
+      end
       
 
-      def generate_class(existing_class,md,package,group)
-        props = md.groupings[group]
+      def generate_class(existing_class,md,package,group, file) #existing_class = nil, md=Metadata object map of metadata.rb package="base", group=default
+        props = md.groupings[group] #{"access"=>"global", "packages"=>["base", "mgmt.catalog", "mgmt.manifest", "catalog", "manifest", "bom"]}
         cms_class = existing_class || Cms::CiMd.new()
-        full_name = generatename(md.name)
+        full_name = generatename(md.name) #oneops.1.Tomcat
+
+        cms_class.impl = props[:impl] || Chef::Config[:default_impl]  
+
+        if Chef::Config.has_key?("object_store_provider") && !Chef::Config[:object_store_provider].nil? && !Chef::Config[:object_store_provider].empty?	
+          cookbook_tar = create_cookbook_tar(file)
+		      cookbook_name = File.dirname(file).gsub(/.*\//,'')
+		      File.open("/tmp/#{cookbook_name}_checksum","w+") {|file| file.write(Digest::SHA256.file(cookbook_tar).hexdigest)}
+		      upload_cookbook_tar(file)
+		      cms_class.impl += "::#{cookbook_sha256}"
+        end
 
         #full_name = Chef::Config[:admin] ? md.name : [ config[:register],config[:version].split(".").first, md.name ].join('.')
-        cms_class.impl = props[:impl] || Chef::Config[:default_impl]  
         
-        cms_class.className = [package, full_name].join('.')
+        cms_class.className = [package, full_name].join('.') #base.oneops.1.Tomcat
         cms_class.description = props[:description] ? props[:description] : md.description
         cms_class.superClassName = ['base', full_name].join('.') unless package == 'base'
         if !props[:namespace].nil? && !(props[:namespace].class.to_s == "TrueClass" || props[:namespace].class.to_s == "FalseClass")
@@ -357,18 +408,18 @@ class Chef
         return target
       end
 
-      def get_remote_dir
+      def get_remote_dir(bucket)
           if !@remote_dir.nil?
              return @remote_dir
           end
           
           conn = get_connection
-          env_bucket = Chef::Config[:environment_name]
+          #env_bucket = Chef::Config[:environment_name]
 
-          @remote_dir = conn.directories.get env_bucket
+          @remote_dir = conn.directories.get bucket
           if @remote_dir.nil?
-            @remote_dir = conn.directories.create :key => env_bucket
-            puts "created #{env_bucket}"
+            @remote_dir = conn.directories.create :key => bucket
+            puts "created #{bucket}"
           end
           puts "remote_dir:\n #{@remote_dir.inspect}"
 
