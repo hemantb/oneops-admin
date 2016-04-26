@@ -266,11 +266,11 @@ class Chef
 
       def upload_cookbook_tar(file)
         circuit_model = ["circuit", config[:register], config[:version].split(".").first].join('-')
-        remote_dir = get_remote_dir(Chef::Config[:environment_name]+'circuits')
+        remote_dir = get_remote_dir(Chef::Config[:environment_name]+'-circuits')
         cookbook_name = File.dirname(file).gsub(/.*\//,'')
         #cookbook_tar = '/tmp/'+cookbook_name+'tar'
         #cookbook_checksum = '/tmp/'+cookbook_name+'_checksum'
-        %W("#{cookbook_name}.tar" "#{cookbook_name}_checksum") do |filename|
+        %W("#{cookbook_name}.tar" "#{cookbook_name}_checksum").each do |filename|
           content = File.open('/tmp/'+filename)
           remote_file = "#{circuit_model}/#{fielname}"
           file = @remote_dir.files.create :key => remote_file, :body => content
